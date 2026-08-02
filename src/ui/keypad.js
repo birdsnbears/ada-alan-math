@@ -15,10 +15,11 @@
 const LAYOUT = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'back', '0', 'enter'];
 
 export class Keypad {
-  constructor(container, { onSubmit, onFirstKey, maxLength = 4 }) {
+  constructor(container, { onSubmit, onFirstKey, onSkip, maxLength = 4 }) {
     this.container = container;
     this.onSubmit = onSubmit;
     this.onFirstKey = onFirstKey;
+    this.onSkip = onSkip;
     this.maxLength = maxLength;
     this.value = '';
     this.hasTyped = false;
@@ -53,7 +54,14 @@ export class Keypad {
     if (e.key >= '0' && e.key <= '9') this.press(e.key);
     else if (e.key === 'Backspace') { e.preventDefault(); this.press('back'); }
     else if (e.key === 'Enter') { e.preventDefault(); this.press('enter'); }
+    else if (e.key === 'Escape') { e.preventDefault(); this.skip(); }
     else return;
+  }
+
+  /** Give up on this question. Costs nothing on the scoreboard, unlike a guess. */
+  skip() {
+    if (this.locked) return;
+    this.onSkip?.();
   }
 
   press(key) {

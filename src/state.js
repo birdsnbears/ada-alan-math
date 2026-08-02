@@ -14,7 +14,7 @@ import { OPERATIONS, firstStageId } from './curriculum.js';
 
 const KEY_PREFIX = 'ada-alan-math:profile:';
 const LAST_USER_KEY = 'ada-alan-math:lastUser';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const USERS = ['Ada', 'Alan'];
 
@@ -65,6 +65,24 @@ const MIGRATIONS = {
     lastUnlockAt: Object.fromEntries(
       OPERATIONS.map((op) => [op, op === 'mul' ? (p.lastUnlockAt ?? 0) : 0])
     ),
+  }),
+
+  /**
+   * v2 -> v3: points moved from per-question to per-round, so any balance
+   * earned under the old rules was priced differently and is wiped once.
+   *
+   * Worth noting what this migration is: not a shape change but a DATA reset,
+   * run exactly once per profile because the version number only crosses 2 -> 3
+   * a single time. That's the cheap way to do a one-off correction — no
+   * "hasReset" flag to remember, no risk of it firing twice. Mastery, unlocked
+   * stages and session history all survive untouched; only the currency resets.
+   */
+  2: (p) => ({
+    ...p,
+    version: 3,
+    points: 0,
+    pointsSpent: 0,
+    dailyPoints: {},
   }),
 };
 
@@ -132,6 +150,23 @@ export function awardPoints(profile, amount, cap) {
   profile.dailyPoints[key] = already + granted;
   profile.points += granted;
   return granted;
+}
+
+/**
+ * Zero the balance without touching anything learned.
+ *
+ * Use this after the points have been spent — the app has no idea when screen
+ * time is actually handed over, so cashing out is a manual act. Mastery,
+ * unlocked stages and history are deliberately untouched: the currency and the
+ * learning are separate things and resetting one should never disturb the other.
+ */
+export function resetPoints(profile) {
+  const had = profile.points;
+  profile.points = 0;
+  profile.pointsSpent = (profile.pointsSpent ?? 0) + had;
+  profile.dailyPoints = {};
+  saveProfile(profile);
+  return had;
 }
 
 /* ---------------------------------------------------------------------------

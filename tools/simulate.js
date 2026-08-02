@@ -28,7 +28,13 @@ import {
   isAvailable,
   nextStageBlocker,
 } from '../src/scheduler.js';
-import { gradeAnswer, ROUND_LENGTH } from '../src/scoring.js';
+import {
+  gradeAnswer,
+  roundPoints,
+  OUTCOME,
+  ROUND_LENGTH,
+  QUESTION_TIME_LIMIT_MS,
+} from '../src/scoring.js';
 import { newProfile } from '../src/state.js';
 
 /* --- deterministic RNG so a run is reproducible and regressions are visible - */
@@ -60,16 +66,26 @@ function difficulty(q) {
   return (easy ? 0.4 : 1.0) * (0.55 + 0.65 * size) * opCost;
 }
 
+/** Chance per question that the child simply drifts off and times out. */
+const DISTRACTION_RATE = 0.03;
+
 function answerAs(learner, q, rng) {
   const exposures = learner.get(q.id) ?? 0;
   const d = difficulty(q);
   const decay = Math.exp(-exposures / 5);
 
+  // Distraction first: it happens regardless of whether they knew the answer.
+  if (rng() < DISTRACTION_RATE) {
+    return { outcome: OUTCOME.TIMEOUT, recallMs: QUESTION_TIME_LIMIT_MS, questionMs: QUESTION_TIME_LIMIT_MS };
+  }
+
   const correct = rng() > 0.55 * d * decay;
   const recallMs = Math.max(700, Math.round(1100 + 5200 * d * decay + (rng() - 0.5) * 900));
+  // Typing takes a moment on top of recall.
+  const questionMs = Math.min(recallMs + 900, QUESTION_TIME_LIMIT_MS);
 
   learner.set(q.id, exposures + (correct ? 1 : 0.4));
-  return { correct, recallMs };
+  return { outcome: correct ? OUTCOME.CORRECT : OUTCOME.WRONG, recallMs, questionMs };
 }
 
 /* --------------------------------- the run -------------------------------- */
@@ -97,6 +113,7 @@ function run({ rounds = 120, seed = 42, focus = null } = {}) {
   const rows = [];
   const unlockLog = [];
   let opCursor = 0;
+  let totalPoints = 0;
 
   for (let r = 1; r <= rounds; r++) {
     const playable = OPERATIONS.filter((op) => isAvailable(profile, op));
@@ -109,23 +126,27 @@ function run({ rounds = 120, seed = 42, focus = null } = {}) {
     let correct = 0;
     let totalMs = 0;
     let fast = 0;
+    let score = 0;
+    let elapsedMs = 0;
 
     for (let i = 0; i < ROUND_LENGTH; i++) {
       const pool = itemsForStages(op, profile.unlocked[op]);
       const item = selectNextItem(profile, pool, rng);
       const q = presentItem(item, rng);
       const res = answerAs(learner, q, rng);
+      elapsedMs += res.questionMs;
 
       const graded = gradeAnswer(
         profile.facts[q.id],
-        res.correct,
+        res.outcome,
         res.recallMs,
         profile.questionCounter
       );
       profile.facts[q.id] = graded.state;
       profile.questionCounter += 1;
+      score += graded.scoreDelta;
 
-      if (res.correct) {
+      if (res.outcome === OUTCOME.CORRECT) {
         correct++;
         totalMs += res.recallMs;
         if (graded.band === 'fast') fast++;
@@ -136,6 +157,9 @@ function run({ rounds = 120, seed = 42, focus = null } = {}) {
       }
     }
 
+    const points = roundPoints({ asked: ROUND_LENGTH, correct, elapsedMs });
+    totalPoints += points;
+
     rows.push({
       round: r,
       op,
@@ -143,6 +167,9 @@ function run({ rounds = 120, seed = 42, focus = null } = {}) {
       accuracy: `${Math.round((correct / ROUND_LENGTH) * 100)}%`,
       fluent: `${Math.round((fast / ROUND_LENGTH) * 100)}%`,
       avgMs: correct ? Math.round(totalMs / correct) : 0,
+      score,
+      pts: points,
+      secs: Math.round(elapsedMs / 1000),
       add: stageStr(profile, 'add'),
       sub: stageStr(profile, 'sub'),
       mul: stageStr(profile, 'mul'),
@@ -150,7 +177,7 @@ function run({ rounds = 120, seed = 42, focus = null } = {}) {
     });
   }
 
-  return { rows, unlockLog, profile };
+  return { rows, unlockLog, profile, totalPoints };
 }
 
 function stageStr(profile, op) {
@@ -190,14 +217,14 @@ function auditProcedures(samples = 4000) {
 }
 
 /* --------------------------------- report --------------------------------- */
-const { rows, unlockLog, profile } = run();
+const { rows, unlockLog, profile, totalPoints } = run();
 
 console.log('\n=== Every 10th round (20 questions each) ===\n');
 console.table(
   rows
     .filter((r) => r.round % 10 === 0)
-    .map(({ round, op, questions, accuracy, fluent, avgMs, add, sub, mul, div }) => ({
-      round, op, questions, accuracy, fluent, avgMs, add, sub, mul, div,
+    .map(({ round, op, accuracy, fluent, avgMs, secs, score, pts, add, sub, mul, div }) => ({
+      round, op, accuracy, fluent, avgMs, secs, score, pts, add, sub, mul, div,
     }))
 );
 
@@ -220,9 +247,26 @@ for (const op of OPERATIONS) {
       `mastered ${String(m.mastered).padStart(3)}/${String(m.total).padEnd(3)} (${Math.round(m.ratio * 100)}%)`
   );
 }
+const perfectRounds = rows.filter((r) => r.accuracy === '100%').length;
+const zeroRounds = rows.filter((r) => r.pts === 0).length;
 console.log(
   `\n  ${profile.questionCounter} questions total, roughly ` +
-    `${Math.round((profile.questionCounter * 5) / 60)} minutes of practice.\n`
+    `${Math.round((profile.questionCounter * 5) / 60)} minutes of practice.\n` +
+    `  Earned ${totalPoints} points over ${rows.length} rounds ` +
+    `(${(totalPoints / rows.length).toFixed(2)} per round). ` +
+    `${perfectRounds} perfect, ${zeroRounds} paid nothing.\n`
+);
+
+/* --------------------------- the reward formula ---------------------------
+ * Worked examples, printed so the numbers can be eyeballed rather than trusted.
+ * ------------------------------------------------------------------------ */
+console.log('=== Reward table (20-question round, within the time limit) ===\n');
+console.table(
+  [0, 1, 2, 3, 4, 6, 8, 10].map((misses) => ({
+    misses,
+    correct: `${ROUND_LENGTH - misses}/${ROUND_LENGTH}`,
+    points: roundPoints({ asked: ROUND_LENGTH, correct: ROUND_LENGTH - misses, elapsedMs: 60_000 }),
+  }))
 );
 
 /* ------------------- focused runs: does each curriculum work? --------------
@@ -247,6 +291,25 @@ console.log('');
 
 /* ------------------------------ sanity checks ----------------------------- */
 const problems = [];
+
+/**
+ * The reward formula, asserted directly. These are the numbers Louis specified,
+ * and they're the easiest thing in the app to break by accident while tuning
+ * something adjacent.
+ */
+const reward = (correct, elapsedMs = 60_000) =>
+  roundPoints({ asked: ROUND_LENGTH, correct, elapsedMs });
+
+if (reward(20) !== 5) problems.push(`A perfect round should pay 5, paid ${reward(20)}.`);
+if (reward(19) !== 3) problems.push(`One mistake should pay 3, paid ${reward(19)}.`);
+if (reward(18) !== 3) problems.push(`Two mistakes should pay 3, paid ${reward(18)}.`);
+if (reward(17) !== 2) problems.push(`Three mistakes should pay 2, paid ${reward(17)}.`);
+if (reward(12) !== 0) problems.push(`Eight mistakes should pay 0, paid ${reward(12)}.`);
+if (reward(0) !== 0) problems.push(`Skipping everything should pay 0, paid ${reward(0)}.`);
+if (reward(20, 999_999) !== 0) problems.push('Blowing the round time limit should pay nothing.');
+if (roundPoints({ asked: 5, correct: 5, elapsedMs: 10_000 }) !== 0) {
+  problems.push('An unfinished round should pay nothing.');
+}
 
 const procIssues = auditProcedures();
 if (procIssues.length) {

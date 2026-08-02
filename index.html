@@ -65,6 +65,7 @@
   <footer class="footer">
     <button id="btn-backup" class="ghost small">Save progress to a file</button>
     <button id="btn-restore" class="ghost small">Restore from a file</button>
+    <button id="btn-reset-points" class="ghost small danger">Cash out points</button>
     <input type="file" id="restore-input" accept="application/json" hidden>
   </footer>
 </section>
@@ -73,17 +74,22 @@
 <section id="screen-drill" class="screen">
   <header class="topbar">
     <button id="drill-quit" class="ghost">Back</button>
-    <div class="bar slim"><div id="drill-progress" class="bar-fill"></div></div>
-    <span class="points-chip">★ <span id="drill-points">0</span></span>
+    <div class="meters">
+      <div class="bar slim" title="Questions done"><div id="drill-progress" class="bar-fill"></div></div>
+      <div class="bar slim" title="Round time left"><div id="drill-roundtime" class="bar-fill time"></div></div>
+    </div>
+    <span class="points-chip">★ <span id="drill-score">0</span></span>
   </header>
 
   <div class="drill-body">
     <div id="question" class="question">&nbsp;</div>
+    <div class="qtimer"><div id="drill-qtime" class="qtimer-fill"></div></div>
     <div id="answer" class="answer"><span id="answer-text"></span><span class="caret"></span></div>
     <div id="feedback" class="feedback">&nbsp;</div>
   </div>
 
   <div id="keypad" class="keypad"></div>
+  <button id="drill-skip" class="ghost small skip">Skip this one</button>
 </section>
 
 <!-- ===================== 4. RESULTS ===================== -->
@@ -91,6 +97,7 @@
   <div class="stack center">
     <h1 id="results-title" class="title">Round complete</h1>
     <div class="score-grid">
+      <div class="score-cell"><span id="res-score" class="score-num">0</span><small>round score</small></div>
       <div class="score-cell"><span id="res-correct" class="score-num">0</span><small>correct</small></div>
       <div class="score-cell"><span id="res-speed" class="score-num">0s</span><small>avg speed</small></div>
       <div class="score-cell"><span id="res-points" class="score-num">0</span><small>points won</small></div>

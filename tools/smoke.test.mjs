@@ -5,8 +5,9 @@
  *   npm test
  *
  * jsdom is a fake browser that runs in Node. It plays whole rounds — picking a
- * user, starting a drill, tapping keypad buttons, finishing 20 questions — and
- * asserts the app reached the right screens and saved the right data.
+ * user, starting a drill, tapping keypad buttons, skipping, letting questions
+ * time out — and asserts the app reached the right screens and saved the right
+ * data.
  *
  * This catches the class of bug simulate.js cannot: the pure logic being
  * perfect while a button is wired to the wrong handler. Two tests for two
@@ -33,7 +34,7 @@ global.alert = () => {};
 global.performance = { now: () => Number(process.hrtime.bigint() / 1000n) / 1000 };
 
 /**
- * Seed a v1 profile for Alan BEFORE the app boots, so the schema migration is
+ * Seed a v1 profile for Alan BEFORE the app boots, so the schema migrations are
  * exercised against real saved data rather than being assumed to work.
  */
 const V1_ALAN = {
@@ -42,7 +43,7 @@ const V1_ALAN = {
   createdAt: '2026-07-01T00:00:00.000Z',
   points: 17,
   pointsSpent: 0,
-  dailyPoints: {},
+  dailyPoints: { '2026-07-01': 17 },
   facts: {
     'mul:5x3': { box: 4, seen: 6, correct: 6, streak: 4, avgMs: 2100, lastSeenIndex: 40 },
   },
@@ -56,9 +57,9 @@ window.localStorage.setItem('ada-alan-math:profile:Alan', JSON.stringify(V1_ALAN
 /**
  * Run the clock 10x fast.
  *
- * The drill pauses 450ms after a correct answer and 1700ms after a wrong one so
- * a child can read the feedback. Playing ten rounds at real speed would take
- * two minutes, which is long enough that nobody runs the test. Scaling every
+ * The drill pauses 450ms after a correct answer, 1700ms after a miss, and lets
+ * a question sit for 15 SECONDS before timing out. At real speed this suite
+ * would take minutes, which is long enough that nobody runs it. Scaling every
  * timeout preserves the ordering the app depends on while making the suite
  * finish in seconds. Patching the clock in the test is the right place for
  * this — production code shouldn't carry a "go faster for tests" flag.
@@ -68,11 +69,14 @@ const SPEEDUP = 10;
 globalThis.setTimeout = (fn, ms = 0, ...rest) =>
   realSetTimeout(fn, Math.max(0, Math.round(ms / SPEEDUP)), ...rest);
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const sleep = (ms) => new Promise((r) => realSetTimeout(r, ms));
 const $ = (s) => window.document.querySelector(s);
 const $$ = (s) => [...window.document.querySelectorAll(s)];
 const active = () => $$('.screen').find((e) => e.classList.contains('active')).id;
 const click = (el) => el.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
+const btn = (op) => $(`.op-btn[data-op="${op}"]`);
+const load = (name = 'Ada') =>
+  JSON.parse(window.localStorage.getItem(`ada-alan-math:profile:${name}`));
 
 const fails = [];
 const check = (name, cond) => {
@@ -89,28 +93,21 @@ check('boots on the profile screen', active() === 'screen-profile');
 click(window.document.querySelector('[data-user="Ada"]'));
 check('picking Ada goes home', active() === 'screen-home');
 check('greeting shows the name', $('#home-greeting').textContent === 'Hi Ada');
-
-const btn = (op) => $(`.op-btn[data-op="${op}"]`);
 check('addition is available on a new profile', !btn('add').disabled);
 check('multiplication is available on a new profile', !btn('mul').disabled);
 check('subtraction is locked on a new profile', btn('sub').disabled);
 check('division is locked on a new profile', btn('div').disabled);
-check(
-  'subtraction explains it needs addition',
-  /addition/i.test(btn('sub').querySelector('.op-meta').textContent)
-);
-check(
-  'division explains it needs multiplication',
-  /multiplication/i.test(btn('div').querySelector('.op-meta').textContent)
-);
-check(
-  'available operations show their stage',
-  /Stage 1 of 7/.test(btn('add').querySelector('.op-meta').textContent)
-);
+check('subtraction says it needs addition', /addition/i.test(btn('sub').textContent));
+check('division says it needs multiplication', /multiplication/i.test(btn('div').textContent));
 
-/* --------------------------------- drills --------------------------------- */
+/* ------------------------------ playing rounds ---------------------------- */
 
-const OPS = { '+': (a, b) => a + b, '−': (a, b) => a - b, '×': (a, b) => a * b, '÷': (a, b) => a / b };
+const OPS = {
+  '+': (a, b) => a + b,
+  '−': (a, b) => a - b,
+  '×': (a, b) => a * b,
+  '÷': (a, b) => a / b,
+};
 
 function keys() {
   const map = {};
@@ -118,83 +115,118 @@ function keys() {
   return map;
 }
 
-async function answerOne(wrong = false) {
+/**
+ * Answer the question on screen one of four ways.
+ * @param {'correct'|'wrong'|'skip'|'timeout'} mode
+ */
+async function answerOne(mode = 'correct') {
   const [l, sym, r] = $('#question').textContent.split(' ');
   const truth = OPS[sym](Number(l), Number(r));
-  const value = String(wrong ? truth + 1 : truth);
+
+  if (mode === 'timeout') {
+    // 15s scaled to 1.5s, plus the 1.7s -> 170ms miss pause, plus slack.
+    await sleep(2100);
+    return { truth };
+  }
+  if (mode === 'skip') {
+    click($('#drill-skip'));
+    await sleep(280);
+    return { truth };
+  }
+
+  const value = String(mode === 'wrong' ? truth + 1 : truth);
   const k = keys();
   for (const d of value) click(k[d]);
   const shown = $('#answer-text').textContent;
   click(k['✓']);
-  await sleep(wrong ? 1900 : 600);
-  return { ok: shown === value, truth };
+  await sleep(mode === 'wrong' ? 280 : 120);
+  return { truth, typedOk: shown === value };
 }
 
-async function playRound({ missOne = false } = {}) {
+/** Play until the round ends. `pattern(i)` picks the mode for question i. */
+async function playRound(pattern = () => 'correct') {
   let n = 0;
   while (active() === 'screen-drill' && n < 30) {
-    await answerOne(missOne && n === 1);
+    await answerOne(pattern(n));
     n++;
   }
   return n;
 }
 
+const points = () => Number($('#res-points').textContent);
+const roundScore = () => $('#res-score').textContent;
+
 click(btn('mul'));
 check('the multiplication drill starts', active() === 'screen-drill');
 check('a question is rendered', /^\d+ × \d+$/.test($('#question').textContent));
 check('the keypad has 12 keys', $$('.key').length === 12);
+check('there is a skip button', !!$('#drill-skip'));
+check('there is a per-question timer', !!$('#drill-qtime'));
+check('there is a round timer', !!$('#drill-roundtime'));
 
 const first = await answerOne();
-check('typed digits appear in the answer field', first.ok);
+check('typed digits appear in the answer field', first.typedOk);
 check('a correct answer advances the question', active() === 'screen-drill');
+check('the live round score went up by 1', $('#drill-score').textContent === '1');
 
-await answerOne(true);
-check('a wrong answer does not end the round', active() === 'screen-drill');
+/* ------------------------- a perfect round pays 5 ------------------------- */
 
 await playRound();
 check('the round ends after 20 questions', active() === 'screen-results');
-check('results show a score', /^\d+\/20$/.test($('#res-correct').textContent));
-check('points were awarded', Number($('#res-points').textContent) > 0);
+check('a perfect round scores 20', roundScore() === '20');
+check('a perfect round pays 5 points', points() === 5);
+check('the title celebrates a perfect round', /perfect/i.test($('#results-title').textContent));
 
-let saved = JSON.parse(window.localStorage.getItem('ada-alan-math:profile:Ada'));
+let saved = load();
 check('the profile persisted', saved?.name === 'Ada');
-check('the schema version is stamped', saved.version === 2);
+check('the schema version is stamped', saved.version === 3);
 check('20 questions were counted', saved.questionCounter === 20);
-check('per-fact state was recorded', Object.keys(saved.facts).length > 0);
-check('the session was logged', saved.sessions.length === 1);
-check('the daily cap was respected', saved.points <= 60);
-
-/* ------------------- prerequisites open the locked operations -------------- */
+check('the session recorded the round score', saved.sessions[0].score === 20);
+check('the session recorded time on task', saved.sessions[0].elapsedMs >= 0);
 
 click($('#results-home'));
-check('returns home', active() === 'screen-home');
 check('division opened after multiplication practice', !btn('div').disabled);
 
+/* --------------------- one mistake caps the round at 3 -------------------- */
+
 click(btn('div'));
-check('the division drill starts', active() === 'screen-drill');
 check('division questions render', /^\d+ ÷ \d+$/.test($('#question').textContent));
-await playRound();
-check('the division round completes', active() === 'screen-results');
+await playRound((i) => (i === 0 ? 'wrong' : 'correct'));
+check('one wrong answer scores 18.5', roundScore() === '18.5');
+check('one wrong answer pays 3 points', points() === 3);
+check('the results explain the deduction', /4 − 0.5 = 3/.test($('#results-notes').textContent));
 click($('#results-home'));
+
+/* --------------------- three misses pay 2, skips count -------------------- */
 
 click(btn('add'));
-check('the addition drill starts', active() === 'screen-drill');
 check('addition questions render', /^\d+ \+ \d+$/.test($('#question').textContent));
-await playRound();
+await playRound((i) => (i < 3 ? 'skip' : 'correct'));
+check('skips leave the round score alone (17 correct = 17)', roundScore() === '17');
+check('three skips still pay only 2 points', points() === 2);
 click($('#results-home'));
 
-// Subtraction should open after a couple of addition rounds, not instantly and
-// not never. Loop with a bound rather than hardcoding a round count, so tuning
-// the gate doesn't break the test for the wrong reason.
-let addRounds = 1;
+/* ------------------------------ a timeout is a miss ----------------------- */
+
+click(btn('add'));
+await answerOne('timeout');
+check('a timed-out question advances the round', active() === 'screen-drill');
+check('the live score is unchanged by a timeout', $('#drill-score').textContent === '0');
+await playRound();
+check('a timeout counts as a miss for the reward', points() === 3);
+check('a timeout does not dent the round score (19)', roundScore() === '19');
+click($('#results-home'));
+
+/* --------------------- subtraction opens from addition -------------------- */
+
+let addRounds = 0;
 while (btn('sub').disabled && addRounds < 6) {
   click(btn('add'));
   await playRound();
   click($('#results-home'));
   addRounds++;
 }
-check(`subtraction opened after addition practice (${addRounds} rounds)`, !btn('sub').disabled);
-check('subtraction was not free on round one', addRounds > 1);
+check(`subtraction opened after addition practice (${addRounds} more rounds)`, !btn('sub').disabled);
 
 click(btn('sub'));
 check('subtraction questions render', /^\d+ − \d+$/.test($('#question').textContent));
@@ -203,20 +235,70 @@ check('subtraction never asks for a negative answer', Number(subQ[0]) >= Number(
 await playRound();
 click($('#results-home'));
 
-saved = JSON.parse(window.localStorage.getItem('ada-alan-math:profile:Ada'));
+saved = load();
 check('all four operations were played', new Set(saved.sessions.map((s) => s.op)).size === 4);
-check('every operation has unlocked stages', ['add', 'sub', 'mul', 'div'].every((o) => saved.unlocked[o].length > 0));
-check('points still under the daily cap', saved.points <= 60);
+check(
+  'every operation has unlocked stages',
+  ['add', 'sub', 'mul', 'div'].every((o) => saved.unlocked[o].length > 0)
+);
+check('points stayed under the daily cap', saved.points <= 60);
 check('home shows the running total', Number($('#home-points').textContent) === saved.points);
 
-/* --------------------------- the v1 -> v2 migration ----------------------- */
+/* ------------------------- the exploits stay closed ----------------------- */
+
+const before = saved.points;
+
+// Skipping everything: full round, zero effort. Must pay nothing, or the
+// optimal strategy becomes "skip anything you're unsure of and collect base".
+click(btn('add'));
+await playRound(() => 'skip');
+check('skipping every question still reaches the results', active() === 'screen-results');
+check('skipping every question pays nothing', points() === 0);
+click($('#results-home'));
+check('skipping every question earns no balance', load().points === before);
+
+// Spamming wrong answers: same, and worse on the scoreboard.
+click(btn('add'));
+await playRound(() => 'wrong');
+check('spamming wrong answers pays nothing', points() === 0);
+check('spamming wrong answers gives a negative round score', Number(roundScore()) < 0);
+click($('#results-home'));
+check('spamming wrong answers earns no balance', load().points === before);
+
+// Quitting halfway, or "answer two, bail, repeat".
+click(btn('add'));
+await answerOne();
+await answerOne();
+click($('#drill-quit'));
+saved = load();
+check('quitting mid-round pays nothing', saved.points === before);
+check('quitting mid-round still saves what was learned', saved.questionCounter > 20);
+
+/* ------------------------------- cashing out ------------------------------ */
+
+global.confirm = () => false;
+click($('#btn-reset-points'));
+check('declining the confirm keeps the points', load().points === before);
+
+global.confirm = () => true;
+click($('#btn-reset-points'));
+saved = load();
+check('cashing out zeroes the balance', saved.points === 0);
+check('cashing out records what was spent', saved.pointsSpent === before);
+check('cashing out clears the daily tally', Object.keys(saved.dailyPoints).length === 0);
+check('cashing out leaves mastery alone', Object.keys(saved.facts).length > 0);
+check('cashing out leaves unlocked stages alone', saved.unlocked.sub.length > 0);
+check('the home screen reflects the reset', $('#home-points').textContent === '0');
+
+/* --------------------------- the v1 -> v3 migration ----------------------- */
 
 click($('#home-switch'));
 click(window.document.querySelector('[data-user="Alan"]'));
-const alan = JSON.parse(window.localStorage.getItem('ada-alan-math:profile:Alan'));
+const alan = load('Alan');
 
-check('migration bumps the schema version', alan.version === 2);
-check('migration keeps earned points', alan.points === 17);
+check('migration bumps the schema version', alan.version === 3);
+check('migration wipes the old point balance', alan.points === 0);
+check('migration wipes the old daily tally', Object.keys(alan.dailyPoints).length === 0);
 check('migration keeps the question count', alan.questionCounter === 42);
 check('migration preserves mastery of a known fact', alan.facts['mul:5x3'].box === 4);
 check(

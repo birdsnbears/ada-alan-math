@@ -10,16 +10,25 @@
 
 import { OPERATIONS, OPERATION_LABELS, CURRICULUM, getStage } from './curriculum.js';
 import { masteryProgress, refreshUnlocks, isAvailable, progressNote } from './scheduler.js';
-import { DAILY_POINT_CAP, ROUND_LENGTH } from './scoring.js';
+import {
+  DAILY_POINT_CAP,
+  ROUND_LENGTH,
+  ROUND_BASE_POINTS,
+  PERFECT_ROUND_POINTS,
+  MISS_PENALTY,
+  QUESTION_TIME_LIMIT_MS,
+  ROUND_TIME_LIMIT_MS,
+} from './scoring.js';
 import {
   loadProfile,
   saveProfile,
   downloadBackup,
   importProfiles,
   pointsEarnedToday,
+  resetPoints,
 } from './state.js';
 import { Keypad } from './ui/keypad.js';
-import { startDrill } from './ui/drill.js';
+import { startDrill, formatScore } from './ui/drill.js';
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -34,8 +43,10 @@ const drillEls = {
   question: $('#question'),
   answerText: $('#answer-text'),
   feedback: $('#feedback'),
-  points: $('#drill-points'),
+  score: $('#drill-score'),
   progress: $('#drill-progress'),
+  roundtime: $('#drill-roundtime'),
+  qtime: $('#drill-qtime'),
 };
 
 let profile = null;
@@ -46,8 +57,11 @@ let lastOp = 'mul';
 const keypad = new Keypad($('#keypad'), {
   onSubmit: () => {},
   onFirstKey: () => {},
+  onSkip: () => {},
   maxLength: 3,
 });
+
+$('#drill-skip').addEventListener('click', () => keypad.skip());
 
 function show(name) {
   for (const [key, el] of Object.entries(screens)) {
@@ -123,7 +137,10 @@ function renderHome() {
   $('#home-daily').textContent =
     today >= DAILY_POINT_CAP
       ? `Daily maximum reached (${DAILY_POINT_CAP} points). Come back tomorrow!`
-      : `${today} of ${DAILY_POINT_CAP} points earned today`;
+      : `${today} of ${DAILY_POINT_CAP} points today — ` +
+        `a perfect round is ${PERFECT_ROUND_POINTS}, any mistake caps it at ${
+          ROUND_BASE_POINTS - 1
+        }`;
 }
 
 document.querySelectorAll('.op-btn').forEach((btn) => {
@@ -159,16 +176,40 @@ $('#drill-quit').addEventListener('click', () => {
 
 function showResults(round) {
   activeDrill = null;
+  $('#res-score').textContent = formatScore(round.score);
   $('#res-correct').textContent = `${round.correct}/${round.asked}`;
   $('#res-speed').textContent = round.avgMs ? `${(round.avgMs / 1000).toFixed(1)}s` : '—';
   $('#res-points').textContent = round.points;
 
+  const perfect = round.asked > 0 && round.correct === round.asked;
   const accuracy = round.asked ? round.correct / round.asked : 0;
-  $('#results-title').textContent =
-    accuracy === 1 ? 'Perfect round!' : accuracy >= 0.8 ? 'Great work!' : 'Round complete';
+  $('#results-title').textContent = perfect
+    ? 'Perfect round!'
+    : accuracy >= 0.8
+      ? 'Great work!'
+      : 'Round complete';
 
   const notes = $('#results-notes');
   notes.innerHTML = '';
+
+  // Show the arithmetic behind the payout. A child who can see "4 − 1.5 = 2"
+  // learns the rule, and learning the rule is what makes them slow down.
+  const misses = round.asked - round.correct;
+  if (round.outOfTime) {
+    notes.appendChild(note('Out of time for the whole round — no points this time.', 'warn'));
+  } else if (round.asked < ROUND_LENGTH) {
+    notes.appendChild(note('Round not finished, so no points.', 'warn'));
+  } else if (perfect) {
+    notes.appendChild(note(`Perfect round bonus: ${PERFECT_ROUND_POINTS} points!`, 'mastered'));
+  } else {
+    notes.appendChild(
+      note(
+        `${misses} missed → ${ROUND_BASE_POINTS} − ${formatScore(misses * MISS_PENALTY)} ` +
+          `= ${round.earned} point${round.earned === 1 ? '' : 's'}`
+      )
+    );
+  }
+
   for (const u of round.unlocked) {
     notes.appendChild(
       note(`New in ${OPERATION_LABELS[u.op].toLowerCase()}: ${u.label}!`, 'unlock')
@@ -177,8 +218,8 @@ function showResults(round) {
   for (const label of [...new Set(round.newlyMastered)]) {
     notes.appendChild(note(`Mastered ${label}`, 'mastered'));
   }
-  if (pointsEarnedToday(profile) >= DAILY_POINT_CAP) {
-    notes.appendChild(note(`You've hit today's ${DAILY_POINT_CAP} point maximum.`));
+  if (round.cappedOut || pointsEarnedToday(profile) >= DAILY_POINT_CAP) {
+    notes.appendChild(note(`You've hit today's ${DAILY_POINT_CAP} point maximum.`, 'warn'));
   }
 
   show('results');
@@ -197,10 +238,32 @@ $('#results-home').addEventListener('click', () => {
   show('home');
 });
 
-/* ------------------------- backup / restore ------------------------------- */
+/* --------------------- backup / restore / cash out ------------------------ */
 
 $('#btn-backup').addEventListener('click', downloadBackup);
 $('#btn-restore').addEventListener('click', () => $('#restore-input').click());
+
+/**
+ * Cashing out. The app can't know when screen time is actually handed over, so
+ * this is a manual act by the grown-up. Guarded by a confirm() rather than
+ * hidden behind a password: a child has no incentive to zero their own balance,
+ * so the only real risk is a misplaced tap.
+ */
+$('#btn-reset-points').addEventListener('click', () => {
+  if (!profile) return;
+  if (profile.points === 0) {
+    alert(`${profile.name} has no points to cash out.`);
+    return;
+  }
+  const ok = confirm(
+    `Cash out ${profile.points} points for ${profile.name}?\n\n` +
+      `That's ${profile.points} minutes of screen time. The balance goes back to zero.\n` +
+      `Nothing they've learned is affected.`
+  );
+  if (!ok) return;
+  resetPoints(profile);
+  renderHome();
+});
 
 $('#restore-input').addEventListener('change', async (e) => {
   const file = e.target.files?.[0];
@@ -223,5 +286,8 @@ $('#restore-input').addEventListener('change', async (e) => {
 
 show('profile');
 console.info(
-  `Ada & Alan Math — ${ROUND_LENGTH} questions per round, ${DAILY_POINT_CAP} point daily cap.`
+  `Ada & Alan Math — ${ROUND_LENGTH} questions per round · ` +
+    `${QUESTION_TIME_LIMIT_MS / 1000}s per question, ${ROUND_TIME_LIMIT_MS / 1000}s per round · ` +
+    `perfect ${PERFECT_ROUND_POINTS} pts, base ${ROUND_BASE_POINTS} − ${MISS_PENALTY}/miss · ` +
+    `${DAILY_POINT_CAP} point daily cap.`
 );
