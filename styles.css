@@ -1,0 +1,169 @@
+/* Ada & Alan Math — styles
+   Design targets: big touch targets, very high contrast, numerals that read
+   clearly at arm's length on a tablet. Nothing fancy; kids don't need chrome. */
+
+:root {
+  --bg: #17102f;
+  --bg-2: #221845;
+  --panel: #2c2058;
+  --ink: #f4f1ff;
+  --muted: #a99ed4;
+  --accent: #ffd23f;
+  --good: #3ddc84;
+  --bad: #ff6b6b;
+  --add: #4cc9f0;
+  --sub: #b085f5;
+  --mul: #ffb703;
+  --div: #06d6a0;
+  --radius: 18px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+body { display: flex; flex-direction: column; }
+
+/* ---------- screens ---------- */
+.screen { display: none; flex: 1; flex-direction: column; padding: 16px; gap: 16px; }
+.screen.active { display: flex; }
+
+.stack { display: flex; flex-direction: column; gap: 18px; flex: 1; }
+.stack.center { justify-content: center; align-items: center; text-align: center; }
+.row { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+
+.title { font-size: clamp(28px, 7vw, 44px); margin: 0; letter-spacing: -0.5px; }
+.subtitle { color: var(--muted); font-size: 18px; margin: 0; }
+.muted { color: var(--muted); display: block; }
+
+/* ---------- topbar ---------- */
+.topbar { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+.greeting { flex: 1; text-align: center; font-weight: 600; font-size: 18px; }
+.points-chip {
+  background: var(--panel); color: var(--accent);
+  padding: 8px 14px; border-radius: 999px;
+  font-weight: 700; font-size: 17px; white-space: nowrap;
+}
+
+/* ---------- buttons ---------- */
+button { font-family: inherit; cursor: pointer; border: none; }
+
+.ghost {
+  background: transparent; color: var(--muted);
+  border: 2px solid var(--panel); border-radius: 999px;
+  padding: 9px 16px; font-size: 15px; font-weight: 600;
+}
+.ghost:hover { color: var(--ink); border-color: var(--muted); }
+.ghost.small { font-size: 13px; padding: 7px 12px; }
+
+.primary {
+  background: var(--accent); color: #2b1c00;
+  border-radius: 999px; padding: 14px 30px;
+  font-size: 19px; font-weight: 800;
+}
+.primary:active { transform: translateY(2px); }
+
+.user-buttons { display: flex; gap: 18px; flex-wrap: wrap; justify-content: center; }
+.user-btn {
+  background: var(--panel); color: var(--ink);
+  border-radius: var(--radius); padding: 34px 46px;
+  font-size: 30px; font-weight: 800; min-width: 170px;
+  border: 3px solid transparent;
+}
+.user-btn:hover { border-color: var(--accent); }
+.user-btn:active { transform: scale(0.97); }
+
+/* ---------- operation grid ---------- */
+.op-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.op-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 6px; padding: 26px 10px; border-radius: var(--radius);
+  background: var(--panel); color: var(--ink);
+  border: 3px solid transparent;
+}
+.op-symbol { font-size: 40px; font-weight: 800; line-height: 1; }
+.op-label { font-size: 15px; font-weight: 600; }
+.op-add .op-symbol { color: var(--add); }
+.op-sub .op-symbol { color: var(--sub); }
+.op-mul .op-symbol { color: var(--mul); }
+.op-div .op-symbol { color: var(--div); }
+.op-btn:active { transform: scale(0.97); }
+.op-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.op-btn:disabled::after { content: "coming soon"; font-size: 11px; color: var(--muted); }
+
+/* ---------- panel / progress ---------- */
+.panel { background: var(--bg-2); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
+.panel-row { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 15px; }
+.tables { color: var(--mul); font-weight: 800; letter-spacing: 1px; }
+
+.bar { background: var(--panel); border-radius: 999px; height: 12px; overflow: hidden; flex: 1; }
+.bar.slim { height: 8px; }
+.bar-fill { background: var(--good); height: 100%; width: 0%; border-radius: 999px; transition: width 240ms ease; }
+
+.footer { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+
+/* ---------- drill ---------- */
+.drill-body {
+  flex: 1; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 14px; min-height: 0;
+}
+.question {
+  font-size: clamp(46px, 13vw, 84px); font-weight: 800;
+  letter-spacing: 2px; font-variant-numeric: tabular-nums;
+}
+.answer {
+  font-size: clamp(38px, 10vw, 64px); font-weight: 700;
+  min-height: 1.2em; color: var(--accent);
+  font-variant-numeric: tabular-nums; display: flex; align-items: center;
+}
+.caret {
+  display: inline-block; width: 3px; height: 1em; margin-left: 4px;
+  background: var(--accent); animation: blink 1s step-end infinite;
+}
+@keyframes blink { 50% { opacity: 0; } }
+
+.feedback { font-size: 22px; font-weight: 700; min-height: 30px; text-align: center; }
+.feedback.good { color: var(--good); }
+.feedback.bad { color: var(--bad); }
+
+/* ---------- keypad ---------- */
+.keypad {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: 10px; max-width: 420px; width: 100%; margin: 0 auto;
+}
+.key {
+  background: var(--panel); color: var(--ink);
+  border-radius: 14px; padding: 20px 0;
+  font-size: 28px; font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.key:active { background: var(--bg-2); transform: scale(0.96); }
+.key.enter { background: var(--accent); color: #2b1c00; }
+.key.back { color: var(--muted); font-size: 22px; }
+
+/* ---------- results ---------- */
+.score-grid { display: flex; gap: 14px; flex-wrap: wrap; justify-content: center; }
+.score-cell {
+  background: var(--bg-2); border-radius: var(--radius);
+  padding: 18px 22px; min-width: 104px;
+  display: flex; flex-direction: column; gap: 4px; align-items: center;
+}
+.score-num { font-size: 32px; font-weight: 800; color: var(--accent); font-variant-numeric: tabular-nums; }
+.score-cell small { color: var(--muted); font-size: 12px; }
+.notes { display: flex; flex-direction: column; gap: 8px; max-width: 460px; }
+.note { background: var(--bg-2); border-radius: 12px; padding: 12px 16px; font-size: 15px; }
+.note.unlock { background: #3a2a10; color: var(--mul); font-weight: 700; }
+.note.mastered { color: var(--good); }
+
+@media (min-width: 720px) {
+  .screen { padding: 28px 32px; max-width: 720px; margin: 0 auto; width: 100%; }
+}

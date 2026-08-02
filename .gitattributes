@@ -1,0 +1,8 @@
+# Normalize line endings. Files are stored LF in the repo and checked out
+# CRLF on Windows. This is the standard cross-platform setup — it means you
+# never see phantom "whole file changed" diffs when moving between machines.
+* text=auto
+
+*.png binary
+*.jpg binary
+*.ico binary

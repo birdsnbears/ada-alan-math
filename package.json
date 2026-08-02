@@ -1,0 +1,15 @@
+{
+  "name": "ada-alan-math",
+  "version": "0.1.0",
+  "description": "Adaptive math fact drills for Ada and Alan",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "serve": "npx --yes http-server . -p 8080 -c-1 -o",
+    "simulate": "node tools/simulate.js",
+    "test": "node tools/smoke.test.mjs"
+  },
+  "devDependencies": {
+    "jsdom": "^24.1.0"
+  }
+}

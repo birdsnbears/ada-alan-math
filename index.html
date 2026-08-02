@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1b1140">
+<title>Ada &amp; Alan Math</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===================== 1. WHO ARE YOU? ===================== -->
+<section id="screen-profile" class="screen active">
+  <div class="stack center">
+    <h1 class="title">Math Practice</h1>
+    <p class="subtitle">Who's playing?</p>
+    <div class="user-buttons">
+      <button class="user-btn" data-user="Ada">Ada</button>
+      <button class="user-btn" data-user="Alan">Alan</button>
+    </div>
+  </div>
+</section>
+
+<!-- ===================== 2. HOME ===================== -->
+<section id="screen-home" class="screen">
+  <header class="topbar">
+    <button id="home-switch" class="ghost">Switch</button>
+    <span id="home-greeting" class="greeting"></span>
+    <span class="points-chip">★ <span id="home-points">0</span></span>
+  </header>
+
+  <div class="stack">
+    <div class="op-grid">
+      <button class="op-btn op-add" data-op="add">
+        <span class="op-symbol">+</span><span class="op-label">Addition</span>
+      </button>
+      <button class="op-btn op-sub" data-op="sub">
+        <span class="op-symbol">−</span><span class="op-label">Subtraction</span>
+      </button>
+      <button class="op-btn op-mul" data-op="mul">
+        <span class="op-symbol">×</span><span class="op-label">Multiplication</span>
+      </button>
+      <button class="op-btn op-div" data-op="div">
+        <span class="op-symbol">÷</span><span class="op-label">Division</span>
+      </button>
+    </div>
+
+    <div class="panel">
+      <div class="panel-row">
+        <strong>Times tables unlocked</strong>
+        <span id="home-tables" class="tables"></span>
+      </div>
+      <div class="bar"><div id="home-mastery-bar" class="bar-fill"></div></div>
+      <small id="home-mastery-text" class="muted"></small>
+      <small id="home-daily" class="muted"></small>
+    </div>
+  </div>
+
+  <footer class="footer">
+    <button id="btn-backup" class="ghost small">Save progress to a file</button>
+    <button id="btn-restore" class="ghost small">Restore from a file</button>
+    <input type="file" id="restore-input" accept="application/json" hidden>
+  </footer>
+</section>
+
+<!-- ===================== 3. DRILL ===================== -->
+<section id="screen-drill" class="screen">
+  <header class="topbar">
+    <button id="drill-quit" class="ghost">Back</button>
+    <div class="bar slim"><div id="drill-progress" class="bar-fill"></div></div>
+    <span class="points-chip">★ <span id="drill-points">0</span></span>
+  </header>
+
+  <div class="drill-body">
+    <div id="question" class="question">&nbsp;</div>
+    <div id="answer" class="answer"><span id="answer-text"></span><span class="caret"></span></div>
+    <div id="feedback" class="feedback">&nbsp;</div>
+  </div>
+
+  <div id="keypad" class="keypad"></div>
+</section>
+
+<!-- ===================== 4. RESULTS ===================== -->
+<section id="screen-results" class="screen">
+  <div class="stack center">
+    <h1 id="results-title" class="title">Round complete</h1>
+    <div class="score-grid">
+      <div class="score-cell"><span id="res-correct" class="score-num">0</span><small>correct</small></div>
+      <div class="score-cell"><span id="res-speed" class="score-num">0s</span><small>avg speed</small></div>
+      <div class="score-cell"><span id="res-points" class="score-num">0</span><small>points won</small></div>
+    </div>
+    <div id="results-notes" class="notes"></div>
+    <div class="row">
+      <button id="results-again" class="primary">Play again</button>
+      <button id="results-home" class="ghost">Home</button>
+    </div>
+  </div>
+</section>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
