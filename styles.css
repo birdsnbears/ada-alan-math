@@ -85,20 +85,26 @@ button { font-family: inherit; cursor: pointer; border: none; }
 /* ---------- operation grid ---------- */
 .op-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
 .op-btn {
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  gap: 6px; padding: 26px 10px; border-radius: var(--radius);
+  display: flex; flex-direction: column; align-items: center; justify-content: flex-start;
+  gap: 5px; padding: 20px 12px 16px; border-radius: var(--radius);
   background: var(--panel); color: var(--ink);
-  border: 3px solid transparent;
+  border: 3px solid transparent; text-align: center;
 }
-.op-symbol { font-size: 40px; font-weight: 800; line-height: 1; }
-.op-label { font-size: 15px; font-weight: 600; }
+.op-symbol { font-size: 38px; font-weight: 800; line-height: 1; }
+.op-label { font-size: 15px; font-weight: 700; }
+.op-meta { font-size: 11px; color: var(--muted); line-height: 1.35; min-height: 2.7em; }
 .op-add .op-symbol { color: var(--add); }
 .op-sub .op-symbol { color: var(--sub); }
 .op-mul .op-symbol { color: var(--mul); }
 .op-div .op-symbol { color: var(--div); }
+.op-add .bar-fill { background: var(--add); }
+.op-sub .bar-fill { background: var(--sub); }
+.op-mul .bar-fill { background: var(--mul); }
+.op-div .bar-fill { background: var(--div); }
 .op-btn:active { transform: scale(0.97); }
-.op-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.op-btn:disabled::after { content: "coming soon"; font-size: 11px; color: var(--muted); }
+.op-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.op-btn:disabled .op-meta { color: var(--muted); font-style: italic; }
+.op-btn:disabled .bar { visibility: hidden; }
 
 /* ---------- panel / progress ---------- */
 .panel { background: var(--bg-2); border-radius: var(--radius); padding: 16px; display: flex; flex-direction: column; gap: 10px; }
@@ -107,7 +113,8 @@ button { font-family: inherit; cursor: pointer; border: none; }
 
 .bar { background: var(--panel); border-radius: 999px; height: 12px; overflow: hidden; flex: 1; }
 .bar.slim { height: 8px; }
-.bar-fill { background: var(--good); height: 100%; width: 0%; border-radius: 999px; transition: width 240ms ease; }
+.bar.tiny { height: 6px; width: 100%; flex: none; background: rgba(0, 0, 0, 0.3); display: block; }
+.bar-fill { background: var(--good); height: 100%; width: 0%; border-radius: 999px; transition: width 240ms ease; display: block; }
 
 .footer { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
 

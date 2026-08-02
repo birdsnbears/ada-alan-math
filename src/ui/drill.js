@@ -1,14 +1,14 @@
 /**
  * drill.js — runs one round of questions.
  *
- * This file is deliberately thin: it renders, it times, it collects input, and
- * it hands everything to the pure modules to decide. All the interesting logic
- * (which fact next, what it's worth, whether a table unlocks) lives in
- * scheduler.js and scoring.js so it can be tested without a browser.
+ * Deliberately thin: it renders, it times, it collects input, and it hands
+ * everything to the pure modules to decide. All the interesting logic (which
+ * item next, what it's worth, whether a stage unlocks) lives in scheduler.js
+ * and scoring.js so it can be tested without a browser.
  */
 
-import { factsForTables, presentFact } from '../curriculum.js';
-import { selectNextFact, checkUnlock } from '../scheduler.js';
+import { itemsForStages, presentItem } from '../curriculum.js';
+import { selectNextItem, refreshUnlocks } from '../scheduler.js';
 import { gradeAnswer, roundBonus, ROUND_LENGTH, DAILY_POINT_CAP } from '../scoring.js';
 import { awardPoints, saveProfile } from '../state.js';
 
@@ -17,12 +17,13 @@ const WRONG_PAUSE_MS = 1700; // long enough to actually read the right answer
 
 export function startDrill({ profile, op, els, keypad, onFinish }) {
   const round = {
+    op,
     asked: 0,
     correct: 0,
     points: 0,
     recallTimes: [],
     newlyMastered: [],
-    unlockedTables: [],
+    unlocked: [],
     aborted: false,
   };
 
@@ -38,21 +39,20 @@ export function startDrill({ profile, op, els, keypad, onFinish }) {
 
   function renderChrome() {
     els.points.textContent = profile.points;
-    const pct = (round.asked / ROUND_LENGTH) * 100;
-    els.progress.style.width = `${pct}%`;
+    els.progress.style.width = `${(round.asked / ROUND_LENGTH) * 100}%`;
   }
 
   function nextQuestion() {
     if (round.aborted) return;
     if (round.asked >= ROUND_LENGTH) return finish();
 
-    const pool = factsForTables(profile.unlocked[op] ?? []);
-    const fact = selectNextFact(profile, pool);
-    if (!fact) return finish();
+    const pool = itemsForStages(op, profile.unlocked[op]);
+    const item = selectNextItem(profile, pool);
+    if (!item) return finish();
 
-    current = presentFact(fact);
+    current = presentItem(item);
     els.question.textContent = `${current.left} ${current.symbol} ${current.right}`;
-    els.feedback.textContent = ' ';
+    els.feedback.textContent = ' ';
     els.feedback.className = 'feedback';
     els.answerText.textContent = '';
 
@@ -85,11 +85,12 @@ export function startDrill({ profile, op, els, keypad, onFinish }) {
       round.correct += 1;
       round.recallTimes.push(recallMs);
     }
-    if (result.becameMastered) {
-      round.newlyMastered.push(`${current.a} × ${current.b}`);
-    }
+    if (result.becameMastered) round.newlyMastered.push(current.display);
 
-    maybeUnlock();
+    // Runs across ALL operations: getting better at addition is what opens
+    // subtraction, and that has to be noticed even mid-round.
+    round.unlocked.push(...refreshUnlocks(profile));
+
     showFeedback(correct, result.band, granted);
     saveProfile(profile);
     renderChrome();
@@ -97,22 +98,14 @@ export function startDrill({ profile, op, els, keypad, onFinish }) {
     timer = setTimeout(nextQuestion, correct ? CORRECT_PAUSE_MS : WRONG_PAUSE_MS);
   }
 
-  function maybeUnlock() {
-    const next = checkUnlock(profile, op);
-    if (next == null) return;
-    profile.unlocked[op].push(next);
-    profile.lastUnlockAt = profile.questionCounter;
-    round.unlockedTables.push(next);
-  }
-
   function showFeedback(correct, band, granted) {
     if (correct) {
-      const praise =
-        band === 'fast' ? 'Fast!' : band === 'medium' ? 'Correct' : 'Correct';
+      const praise = band === 'fast' ? 'Fast!' : 'Correct';
       els.feedback.textContent = granted > 0 ? `${praise}  +${granted}` : praise;
       els.feedback.className = 'feedback good';
     } else {
-      els.feedback.textContent = `${current.left} ${current.symbol} ${current.right} = ${current.answer}`;
+      els.feedback.textContent =
+        `${current.left} ${current.symbol} ${current.right} = ${current.answer}`;
       els.feedback.className = 'feedback bad';
     }
   }

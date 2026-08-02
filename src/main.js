@@ -8,8 +8,8 @@
  * more thing to debug at 11pm when it isn't working for your niece.
  */
 
-import { OPERATION_LABELS, UNLOCK_ORDER } from './curriculum.js';
-import { masteryProgress } from './scheduler.js';
+import { OPERATIONS, OPERATION_LABELS, CURRICULUM, getStage } from './curriculum.js';
+import { masteryProgress, refreshUnlocks, isAvailable, progressNote } from './scheduler.js';
 import { DAILY_POINT_CAP, ROUND_LENGTH } from './scoring.js';
 import {
   loadProfile,
@@ -20,9 +20,6 @@ import {
 } from './state.js';
 import { Keypad } from './ui/keypad.js';
 import { startDrill } from './ui/drill.js';
-
-/** Operations that are actually implemented. The rest render as "coming soon". */
-const ENABLED_OPS = ['mul'];
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -45,10 +42,11 @@ let profile = null;
 let activeDrill = null;
 let lastOp = 'mul';
 
+// Longest possible answer is 198 (99 + 99), so three digits is the ceiling.
 const keypad = new Keypad($('#keypad'), {
   onSubmit: () => {},
   onFirstKey: () => {},
-  maxLength: 4,
+  maxLength: 3,
 });
 
 function show(name) {
@@ -62,6 +60,7 @@ function show(name) {
 document.querySelectorAll('.user-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     profile = loadProfile(btn.dataset.user);
+    refreshUnlocks(profile); // catch anything a migration or rule change opened
     saveProfile(profile);
     renderHome();
     show('home');
@@ -75,36 +74,62 @@ $('#home-switch').addEventListener('click', () => {
 
 /* -------------------------------- home ------------------------------------ */
 
+/** The stage a child is currently working through, i.e. the most recent unlock. */
+function currentStage(op) {
+  const unlocked = profile.unlocked[op] ?? [];
+  if (unlocked.length === 0) return null;
+  return getStage(unlocked[unlocked.length - 1]);
+}
+
 function renderHome() {
   $('#home-greeting').textContent = `Hi ${profile.name}`;
   $('#home-points').textContent = profile.points;
 
-  const tables = profile.unlocked.mul ?? [];
-  $('#home-tables').textContent = tables.join('  ');
+  for (const op of OPERATIONS) {
+    const btn = document.querySelector(`.op-btn[data-op="${op}"]`);
+    const meta = btn.querySelector('.op-meta');
+    const fill = btn.querySelector('.bar-fill');
+    const available = isAvailable(profile, op);
 
-  const { mastered, total, ratio } = masteryProgress(profile, 'mul');
-  $('#home-mastery-bar').style.width = `${Math.round(ratio * 100)}%`;
-  $('#home-mastery-text').textContent =
-    `${mastered} of ${total} facts mastered` +
-    (tables.length < UNLOCK_ORDER.mul.length
-      ? ` — next table unlocks at ${Math.ceil(total * 0.8)} solid facts`
-      : ' — every table unlocked!');
+    btn.disabled = !available;
+
+    if (!available) {
+      meta.textContent = progressNote(profile, op) ?? 'Locked';
+      fill.style.width = '0%';
+      continue;
+    }
+
+    const done = profile.unlocked[op].length;
+    const total = CURRICULUM[op].length;
+    const { mastered, total: items, ratio } = masteryProgress(profile, op);
+    fill.style.width = `${Math.round(ratio * 100)}%`;
+
+    // A cross-operation blocker is the more useful thing to say, because it's
+    // the only one the child can act on.
+    const blocked = progressNote(profile, op);
+    meta.textContent =
+      blocked ??
+      (done < total
+        ? `Stage ${done} of ${total} — ${mastered}/${items} mastered`
+        : `All stages — ${mastered}/${items} mastered`);
+  }
+
+  const working = OPERATIONS.filter((op) => isAvailable(profile, op))
+    .map((op) => currentStage(op)?.label)
+    .filter(Boolean);
+  $('#home-current').textContent = working.join(' · ');
 
   const today = pointsEarnedToday(profile);
   $('#home-daily').textContent =
     today >= DAILY_POINT_CAP
       ? `Daily maximum reached (${DAILY_POINT_CAP} points). Come back tomorrow!`
       : `${today} of ${DAILY_POINT_CAP} points earned today`;
-
-  document.querySelectorAll('.op-btn').forEach((btn) => {
-    btn.disabled = !ENABLED_OPS.includes(btn.dataset.op);
-  });
 }
 
 document.querySelectorAll('.op-btn').forEach((btn) => {
   btn.addEventListener('click', () => {
     const op = btn.dataset.op;
-    if (!ENABLED_OPS.includes(op)) return;
+    if (!isAvailable(profile, op)) return;
     beginDrill(op);
   });
 });
@@ -144,11 +169,13 @@ function showResults(round) {
 
   const notes = $('#results-notes');
   notes.innerHTML = '';
-  for (const table of round.unlockedTables) {
-    notes.appendChild(note(`New: the ${table} times table is unlocked!`, 'unlock'));
+  for (const u of round.unlocked) {
+    notes.appendChild(
+      note(`New in ${OPERATION_LABELS[u.op].toLowerCase()}: ${u.label}!`, 'unlock')
+    );
   }
-  for (const fact of round.newlyMastered) {
-    notes.appendChild(note(`Mastered ${fact}`, 'mastered'));
+  for (const label of [...new Set(round.newlyMastered)]) {
+    notes.appendChild(note(`Mastered ${label}`, 'mastered'));
   }
   if (pointsEarnedToday(profile) >= DAILY_POINT_CAP) {
     notes.appendChild(note(`You've hit today's ${DAILY_POINT_CAP} point maximum.`));
@@ -173,7 +200,6 @@ $('#results-home').addEventListener('click', () => {
 /* ------------------------- backup / restore ------------------------------- */
 
 $('#btn-backup').addEventListener('click', downloadBackup);
-
 $('#btn-restore').addEventListener('click', () => $('#restore-input').click());
 
 $('#restore-input').addEventListener('change', async (e) => {
@@ -197,6 +223,5 @@ $('#restore-input').addEventListener('change', async (e) => {
 
 show('profile');
 console.info(
-  `Ada & Alan Math — round length ${ROUND_LENGTH}, daily cap ${DAILY_POINT_CAP}. ` +
-    `Operations enabled: ${ENABLED_OPS.map((o) => OPERATION_LABELS[o]).join(', ')}.`
+  `Ada & Alan Math — ${ROUND_LENGTH} questions per round, ${DAILY_POINT_CAP} point daily cap.`
 );

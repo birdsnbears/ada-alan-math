@@ -37,7 +37,7 @@ export const POINTS = {
 };
 
 /** Max points earnable per calendar day, i.e. max minutes of screen time. */
-export const DAILY_POINT_CAP = 30;
+export const DAILY_POINT_CAP = 60;
 
 export const MASTERY_BOX = 5;
 

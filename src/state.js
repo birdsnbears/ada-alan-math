@@ -2,20 +2,19 @@
  * state.js — the only module that touches localStorage.
  *
  * Everything else takes a profile object and returns a new one. Keeping
- * persistence in exactly one file means that swapping localStorage for a file,
- * a server, or IndexedDB later is a one-file change.
+ * persistence in exactly one file means swapping localStorage for a file, a
+ * server, or IndexedDB later is a one-file change.
  *
- * SCHEMA VERSIONING: every saved profile carries a `version`. When the mastery
- * model changes (and it will), add a migration below rather than wiping
- * progress. Six weeks of Ada's work is not something to throw away because we
- * renamed a field.
+ * SCHEMA VERSIONING: every saved profile carries a `version`. When the model
+ * changes (and it does — see the v1 -> v2 migration below), add a migration
+ * rather than wiping progress.
  */
 
-import { UNLOCK_ORDER } from './curriculum.js';
+import { OPERATIONS, firstStageId } from './curriculum.js';
 
 const KEY_PREFIX = 'ada-alan-math:profile:';
 const LAST_USER_KEY = 'ada-alan-math:lastUser';
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const USERS = ['Ada', 'Alan'];
 
@@ -27,10 +26,17 @@ export function newProfile(name) {
     points: 0,
     pointsSpent: 0,
     dailyPoints: {}, // { 'YYYY-MM-DD': n } — enforces DAILY_POINT_CAP
-    facts: {}, // { factId: {box, seen, correct, streak, avgMs, lastSeenIndex} }
-    unlocked: { mul: [UNLOCK_ORDER.mul[0]] },
+    facts: {}, // { itemId: {box, seen, correct, streak, avgMs, lastSeenIndex} }
+    // Addition and multiplication open immediately. Subtraction and division
+    // open once their prerequisite stage is solid — see scheduler.refreshUnlocks.
+    unlocked: {
+      add: [firstStageId('add')],
+      sub: [],
+      mul: [firstStageId('mul')],
+      div: [],
+    },
+    lastUnlockAt: Object.fromEntries(OPERATIONS.map((op) => [op, 0])),
     questionCounter: 0,
-    lastUnlockAt: 0,
     sessions: [], // { date, op, asked, correct, points, avgMs }
   };
 }
@@ -38,21 +44,36 @@ export function newProfile(name) {
 /**
  * Migrations. Each entry upgrades a profile FROM that version to the next.
  * Add one whenever the shape changes; never edit an old migration.
- *
- *   const MIGRATIONS = {
- *     1: (p) => ({ ...p, version: 2, newField: defaultValue }),
- *   };
  */
-const MIGRATIONS = {};
+const MIGRATIONS = {
+  /**
+   * v1 -> v2: multiplication-only became four operations.
+   *   unlocked.mul was [5, 2, 10]      -> ['mul:5', 'mul:2', 'mul:10']
+   *   lastUnlockAt was a single number -> one entry per operation
+   * Fact ids ('mul:5x3') were already namespaced, so they carry over untouched
+   * and no mastery is lost.
+   */
+  1: (p) => ({
+    ...p,
+    version: 2,
+    unlocked: {
+      add: [firstStageId('add')],
+      sub: [],
+      mul: (p.unlocked?.mul ?? [5]).map((t) => `mul:${t}`),
+      div: [],
+    },
+    lastUnlockAt: Object.fromEntries(
+      OPERATIONS.map((op) => [op, op === 'mul' ? (p.lastUnlockAt ?? 0) : 0])
+    ),
+  }),
+};
 
 function migrate(profile) {
   let p = profile;
   while ((p.version ?? 0) < SCHEMA_VERSION) {
     const step = MIGRATIONS[p.version ?? 0];
     if (!step) {
-      console.warn(
-        `No migration from v${p.version} — starting a fresh profile for ${p.name}.`
-      );
+      console.warn(`No migration from v${p.version} — starting fresh for ${p.name}.`);
       return newProfile(p.name);
     }
     p = step(p);
@@ -117,7 +138,7 @@ export function awardPoints(profile, amount, cap) {
  * Export / import.
  *
  * localStorage is per-browser and per-device. One cache clear and the progress
- * is gone. This is the least exciting feature in the app and the most important.
+ * is gone. The least exciting feature in the app and the most important one.
  * ------------------------------------------------------------------------- */
 
 export function exportProfiles() {
